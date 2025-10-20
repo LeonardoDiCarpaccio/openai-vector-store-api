@@ -1,256 +1,189 @@
-# API OpenAI Vector Store Management - Version 2.0
+# 🚀 OpenAI Vector Store Management API
 
-Cette API FastAPI vous permet de gérer les vector stores et leurs fichiers OpenAI en passant votre clé API en paramètre depuis Postman.
+API REST complète pour gérer vos vector stores et fichiers OpenAI. Passez votre clé API en paramètre et gérez facilement vos ressources depuis Postman ou n'importe quel client HTTP.
 
-## 🆕 Nouveautés Version 2.0
-
-- ✅ **Liste tous les vector stores** de votre compte en une seule requête
-- ✅ **Suppression en masse** de plusieurs vector stores via un array d'IDs
-- ✅ Gestion des erreurs améliorée avec rapports détaillés
-- ✅ Support de la pagination pour tous les endpoints de liste
-
-## Endpoints disponibles
-
-### 1. Lister tous les vector stores
-
-**Endpoint:** `GET /vector_stores`
-
-**Headers requis:**
-- `x-openai-api-key`: Votre clé API OpenAI
-
-**Paramètres de requête (optionnels):**
-- `after` (string): Curseur pour la pagination
-- `before` (string): Curseur pour la pagination
-- `limit` (integer): Nombre de résultats (1-100, défaut: 20)
-- `order` (string): Ordre de tri (`asc` ou `desc`, défaut: `desc`)
-
-**Exemple de requête Postman:**
-```
-GET http://localhost:8000/vector_stores
-Headers:
-  x-openai-api-key: sk-votre_clé_ici
-```
-
-**Réponse:** Array de tous vos vector stores avec leurs détails (ID, nom, description, nombre de fichiers, etc.)
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeonardoDiCarpaccio/openai-vector-store-api)
 
 ---
 
-### 2. Supprimer plusieurs vector stores (Bulk Delete)
+## ✨ Fonctionnalités
 
-**Endpoint:** `DELETE /vector_stores`
-
-**Headers requis:**
-- `x-openai-api-key`: Votre clé API OpenAI
-- `Content-Type`: application/json
-
-**Body (JSON):**
-```json
-{
-  "vector_store_ids": ["vs_abc123", "vs_def456", "vs_ghi789"]
-}
-```
-
-**Exemple de requête Postman:**
-```
-DELETE http://localhost:8000/vector_stores
-Headers:
-  x-openai-api-key: sk-votre_clé_ici
-  Content-Type: application/json
-Body (raw JSON):
-{
-  "vector_store_ids": ["vs_abc123", "vs_def456"]
-}
-```
-
-**Réponse:** 
-```json
-{
-  "success": ["vs_abc123", "vs_def456"],
-  "failed": []
-}
-```
+- ✅ **Liste tous les vector stores** - Retourne un array simple d'IDs
+- ✅ **Suppression en masse** - Supprimez plusieurs vector stores en une requête
+- ✅ **Gestion des fichiers** - Listez et supprimez les fichiers de vos vector stores
+- ✅ **Pagination automatique** - Récupère tous les résultats automatiquement
+- ✅ **Documentation interactive** - Swagger UI intégré
+- ✅ **Gestion d'erreurs** - Rapports détaillés des succès et échecs
 
 ---
 
-### 3. Lister les fichiers d'un vector store
+## 🎯 Endpoints
 
-**Endpoint:** `GET /vector_stores/{vector_store_id}/files`
+### 1. GET /vector_stores
+Retourne un array de tous les IDs de vector stores de votre compte.
 
-**Headers requis:**
-- `x-openai-api-key`: Votre clé API OpenAI
-
-**Paramètres de requête (optionnels):**
-- `after` (string): Curseur pour la pagination
-- `before` (string): Curseur pour la pagination
-- `filter_status` (string): Filtrer par statut (`in_progress`, `completed`, `failed`, `cancelled`)
-- `limit` (integer): Nombre de résultats (1-100, défaut: 20)
-- `order` (string): Ordre de tri (`asc` ou `desc`, défaut: `desc`)
-
-**Exemple de requête Postman:**
-```
-GET http://localhost:8000/vector_stores/vs_abc123/files
-Headers:
-  x-openai-api-key: sk-votre_clé_ici
+**Réponse :**
+```json
+[
+  "vs_68f61de174e08191991f7b341db64921",
+  "vs_68f61d408d488191a8251dd627526adc",
+  "vs_68f61c61aa208191a28f0fe2bd7cfe7d"
+]
 ```
 
----
+### 2. DELETE /vector_stores
+Supprime plusieurs vector stores en une seule requête.
 
-### 4. Supprimer un fichier d'un vector store
-
-**Endpoint:** `DELETE /vector_stores/{vector_store_id}/files/{file_id}`
-
-**Headers requis:**
-- `x-openai-api-key`: Votre clé API OpenAI
-
-**Exemple de requête Postman:**
-```
-DELETE http://localhost:8000/vector_stores/vs_abc123/files/file-abc456
-Headers:
-  x-openai-api-key: sk-votre_clé_ici
-```
-
----
-
-## Installation et démarrage
-
-### 1. Installer les dépendances
-
-```bash
-pip3 install -r requirements.txt
-```
-
-### 2. Démarrer le serveur
-
-```bash
-python3 vector_store_api.py
-```
-
-Le serveur démarrera sur `http://localhost:8000`
-
-### 3. Documentation interactive
-
-Une fois le serveur démarré, vous pouvez accéder à:
-- **Documentation Swagger UI**: http://localhost:8000/docs
-- **Documentation ReDoc**: http://localhost:8000/redoc
-
-## Utilisation avec Postman
-
-### Configuration de base
-
-Pour toutes les requêtes, vous devez ajouter le header:
-- **Key:** `x-openai-api-key`
-- **Value:** `sk-votre_clé_openai_ici`
-
-### Workflow recommandé
-
-1. **Lister tous vos vector stores**
-   ```
-   GET /vector_stores
-   ```
-   Cela vous retourne un array de tous vos vector stores avec leurs IDs.
-
-2. **Supprimer plusieurs vector stores en une fois**
-   ```
-   DELETE /vector_stores
-   Body: {"vector_store_ids": ["vs_id1", "vs_id2", "vs_id3"]}
-   ```
-
-3. **Lister les fichiers d'un vector store spécifique**
-   ```
-   GET /vector_stores/vs_abc123/files
-   ```
-
-4. **Supprimer un fichier spécifique**
-   ```
-   DELETE /vector_stores/vs_abc123/files/file-abc123
-   ```
-
-### Exemple de réponse pour List Vector Stores
-
+**Body :**
 ```json
 {
-  "object": "list",
-  "data": [
-    {
-      "id": "vs_abc123",
-      "object": "vector_store",
-      "created_at": 1699061776,
-      "name": "Support FAQ",
-      "description": "Contains commonly asked questions",
-      "bytes": 139920,
-      "file_counts": {
-        "in_progress": 0,
-        "completed": 3,
-        "failed": 0,
-        "cancelled": 0,
-        "total": 3
-      }
-    }
-  ],
-  "first_id": "vs_abc123",
-  "last_id": "vs_abc123",
-  "has_more": false
+  "vector_store_ids": ["vs_id1", "vs_id2", "vs_id3"]
 }
 ```
 
-### Exemple de réponse pour Bulk Delete
-
+**Réponse :**
 ```json
 {
-  "success": ["vs_abc123", "vs_def456"],
+  "success": ["vs_id1", "vs_id2"],
   "failed": [
     {
-      "id": "vs_ghi789",
-      "error": "{\"error\":{\"message\":\"No such vector store\"}}",
+      "id": "vs_id3",
+      "error": "...",
       "status_code": 404
     }
   ]
 }
 ```
 
-## Notes importantes
+### 3. GET /vector_stores/{id}/files
+Liste tous les fichiers d'un vector store.
 
-- **Sécurité**: Ne partagez jamais votre clé API OpenAI publiquement
-- **Suppression en masse**: Le endpoint DELETE /vector_stores accepte un array d'IDs et retourne les succès ET les échecs
-- **Suppression de fichiers**: La suppression d'un fichier du vector store ne supprime pas le fichier lui-même de votre compte OpenAI
-- **Rate limiting**: Respectez les limites de taux de l'API OpenAI
-- **Erreurs**: L'API retournera des codes d'erreur HTTP appropriés en cas de problème
+### 4. DELETE /vector_stores/{id}/files/{file_id}
+Supprime un fichier d'un vector store.
 
-## Structure du projet
+---
 
+## 🚀 Déploiement
+
+### Option 1 : Déploiement en un clic sur Render
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LeonardoDiCarpaccio/openai-vector-store-api)
+
+### Option 2 : Déploiement manuel
+
+1. **Cloner le dépôt**
+   ```bash
+   git clone https://github.com/LeonardoDiCarpaccio/openai-vector-store-api.git
+   cd openai-vector-store-api
+   ```
+
+2. **Installer les dépendances**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Lancer le serveur**
+   ```bash
+   uvicorn vector_store_api:app --host 0.0.0.0 --port 8000
+   ```
+
+4. **Accéder à la documentation**
+   ```
+   http://localhost:8000/docs
+   ```
+
+---
+
+## 📖 Utilisation avec Postman
+
+### Configuration de base
+
+Pour toutes les requêtes, ajoutez le header :
+- **Key:** `x-openai-api-key`
+- **Value:** `sk-votre_clé_openai`
+
+### Workflow typique
+
+**1. Lister tous les vector stores**
 ```
-.
-├── vector_store_api.py       # Code principal de l'API (v2.0)
-├── requirements.txt          # Dépendances Python
-├── README.md                 # Ce fichier
-├── POSTMAN_GUIDE_V2.md       # Guide détaillé pour Postman
-├── CURL_EXAMPLES.md          # Exemples de requêtes cURL
-└── openai_api_notes.md       # Notes sur la documentation OpenAI
+GET https://votre-api.onrender.com/vector_stores
+Header: x-openai-api-key: sk-votre_clé
 ```
 
-## Codes d'erreur possibles
+**2. Supprimer plusieurs vector stores**
+```
+DELETE https://votre-api.onrender.com/vector_stores
+Header: x-openai-api-key: sk-votre_clé
+Header: Content-Type: application/json
+Body: {"vector_store_ids": ["vs_id1", "vs_id2"]}
+```
 
-- `400`: Requête invalide
-- `401`: Clé API invalide ou manquante
-- `404`: Vector store ou fichier non trouvé
-- `422`: Validation échouée (header manquant, body invalide, etc.)
-- `500`: Erreur serveur
+---
 
-## Support
+## 🛠️ Technologies
 
-Pour plus d'informations sur l'API OpenAI Vector Stores, consultez:
-- https://platform.openai.com/docs/api-reference/vector-stores
-- https://platform.openai.com/docs/api-reference/vector-stores-files
+- **FastAPI** - Framework web moderne et rapide
+- **Uvicorn** - Serveur ASGI haute performance
+- **Requests** - Client HTTP pour appeler l'API OpenAI
+- **Pydantic** - Validation des données
 
-## Changelog
+---
 
-### Version 2.0
-- ✅ Ajout de `GET /vector_stores` pour lister tous les vector stores
-- ✅ Ajout de `DELETE /vector_stores` pour suppression en masse
-- ✅ Amélioration de la gestion des erreurs
-- ✅ Documentation enrichie
+## 📝 Documentation
 
-### Version 1.0
-- ✅ `GET /vector_stores/{id}/files` - Lister les fichiers
-- ✅ `DELETE /vector_stores/{id}/files/{file_id}` - Supprimer un fichier
+- [Guide de déploiement complet](DEPLOYMENT_GUIDE.md)
+- [Guide de déploiement rapide](DEPLOY_NOW.md)
+- [Guide Postman détaillé](POSTMAN_GUIDE_FINAL.md)
+- [Exemples cURL](CURL_EXAMPLES.md)
+
+---
+
+## 🔒 Sécurité
+
+- ✅ La clé API OpenAI est passée dans les headers (jamais dans l'URL)
+- ✅ Pas de stockage de clés API
+- ✅ Chaque utilisateur utilise sa propre clé
+- ✅ HTTPS automatique avec Render
+
+---
+
+## 💰 Coûts
+
+**Gratuit** avec Render.com :
+- 750 heures/mois
+- HTTPS inclus
+- Déploiement automatique depuis GitHub
+- Pas de carte de crédit requise
+
+---
+
+## 🤝 Contribution
+
+Les contributions sont les bienvenues ! N'hésitez pas à ouvrir une issue ou une pull request.
+
+---
+
+## 📄 Licence
+
+MIT License - Utilisez librement ce projet.
+
+---
+
+## 🎉 Auteur
+
+Créé pour simplifier la gestion des vector stores OpenAI.
+
+---
+
+## 🔗 Liens utiles
+
+- [Documentation OpenAI Vector Stores](https://platform.openai.com/docs/api-reference/vector-stores)
+- [Documentation FastAPI](https://fastapi.tiangolo.com/)
+- [Render.com](https://render.com)
+
+---
+
+## ⭐ Support
+
+Si ce projet vous aide, n'hésitez pas à lui donner une étoile sur GitHub ! ⭐
 
