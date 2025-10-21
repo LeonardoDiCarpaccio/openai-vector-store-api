@@ -7,6 +7,16 @@ from fastapi import FastAPI, HTTPException, Header
 from typing import Optional, List
 import requests
 from pydantic import BaseModel
+import logging
+from datetime import datetime
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="OpenAI Vector Store Management API",
@@ -52,9 +62,32 @@ class BulkDeleteResponse(BaseModel):
     failed: List[dict]
 
 
+@app.on_event("startup")
+async def startup_event():
+    """Événement au démarrage de l'application"""
+    logger.info("=" * 60)
+    logger.info("🚀 OpenAI Vector Store Management API - Démarrage")
+    logger.info("=" * 60)
+    logger.info(f"📅 Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"🌐 Base URL OpenAI: {BASE_URL}")
+    logger.info(f"📖 Documentation: http://localhost:8000/docs")
+    logger.info("=" * 60)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Événement à l'arrêt de l'application"""
+    logger.info("=" * 60)
+    logger.info("🛑 OpenAI Vector Store Management API - Arrêt")
+    logger.info("=" * 60)
+
+
 @app.get("/")
 def read_root():
     """Endpoint racine avec les instructions d'utilisation"""
+    logger.info("📍 Endpoint appelé: GET /")
+    logger.info("✅ Retour des informations de l'API")
+    
     return {
         "message": "API OpenAI Vector Store Management",
         "version": "2.0.0",
@@ -92,6 +125,11 @@ def list_vector_stores(
     Returns:
         Array simple d'IDs de vector stores: ["vs_id1", "vs_id2", ...]
     """
+    logger.info("=" * 60)
+    logger.info("📍 Endpoint appelé: GET /vector_stores")
+    logger.info(f"📊 Paramètres: limit={limit}, order={order}, after={after}, before={before}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
     url = f"{BASE_URL}/vector_stores"
     
     headers = {
@@ -101,6 +139,7 @@ def list_vector_stores(
     }
     
     all_ids = []
+    page_count = 0
     
     # Récupérer tous les vector stores avec pagination automatique
     params = {
@@ -114,10 +153,19 @@ def list_vector_stores(
         params["before"] = before
     
     try:
+        logger.info("🔄 Début de la récupération des vector stores...")
+        
         while True:
+            page_count += 1
+            logger.info(f"📄 Page {page_count}: Appel API OpenAI...")
+            
             response = requests.get(url, headers=headers, params=params)
             
+            logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+            
             if response.status_code != 200:
+                logger.error(f"❌ Erreur OpenAI API: {response.status_code}")
+                logger.error(f"❌ Détails: {response.text}")
                 raise HTTPException(
                     status_code=response.status_code,
                     detail=f"Erreur OpenAI API: {response.text}"
@@ -126,19 +174,34 @@ def list_vector_stores(
             data = response.json()
             
             # Extraire les IDs
+            items_count = len(data.get("data", []))
+            logger.info(f"📦 {items_count} vector stores trouvés sur cette page")
+            
             for item in data.get("data", []):
-                all_ids.append(item.get("id"))
+                vector_store_id = item.get("id")
+                all_ids.append(vector_store_id)
+                logger.debug(f"  ✓ {vector_store_id}")
             
             # Vérifier s'il y a plus de résultats
-            if not data.get("has_more", False):
+            has_more = data.get("has_more", False)
+            logger.info(f"🔍 Plus de résultats disponibles: {has_more}")
+            
+            if not has_more:
                 break
             
             # Utiliser le dernier ID pour la pagination
             params["after"] = data.get("last_id")
+            logger.info(f"➡️  Pagination: after={params['after']}")
+        
+        logger.info(f"✅ Total récupéré: {len(all_ids)} vector stores")
+        logger.info(f"📊 Nombre de pages parcourues: {page_count}")
+        logger.info("=" * 60)
         
         return all_ids
         
     except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Erreur de connexion: {str(e)}")
+        logger.error("=" * 60)
         raise HTTPException(
             status_code=500,
             detail=f"Erreur de connexion: {str(e)}"
@@ -165,6 +228,12 @@ def delete_multiple_vector_stores(
             "vector_store_ids": ["vs_abc123", "vs_def456", "vs_ghi789"]
         }
     """
+    logger.info("=" * 60)
+    logger.info("📍 Endpoint appelé: DELETE /vector_stores")
+    logger.info(f"🗑️  Nombre de vector stores à supprimer: {len(request.vector_store_ids)}")
+    logger.info(f"📋 IDs: {request.vector_store_ids}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
     headers = {
         "Authorization": f"Bearer {x_openai_api_key}",
         "Content-Type": "application/json",
@@ -174,26 +243,42 @@ def delete_multiple_vector_stores(
     success = []
     failed = []
     
-    for vector_store_id in request.vector_store_ids:
+    logger.info("🔄 Début de la suppression...")
+    
+    for index, vector_store_id in enumerate(request.vector_store_ids, 1):
+        logger.info(f"🗑️  [{index}/{len(request.vector_store_ids)}] Suppression de: {vector_store_id}")
+        
         url = f"{BASE_URL}/vector_stores/{vector_store_id}"
         
         try:
             response = requests.delete(url, headers=headers)
             
+            logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+            
             if response.status_code in (200, 204):
                 success.append(vector_store_id)
+                logger.info(f"✅ Supprimé avec succès: {vector_store_id}")
             else:
                 failed.append({
                     "id": vector_store_id,
                     "error": response.text,
                     "status_code": response.status_code
                 })
+                logger.error(f"❌ Échec de suppression: {vector_store_id}")
+                logger.error(f"❌ Erreur: {response.text}")
         except requests.exceptions.RequestException as e:
             failed.append({
                 "id": vector_store_id,
                 "error": str(e),
                 "status_code": 500
             })
+            logger.error(f"❌ Erreur de connexion pour {vector_store_id}: {str(e)}")
+    
+    logger.info("=" * 60)
+    logger.info(f"📊 Résumé de la suppression:")
+    logger.info(f"  ✅ Succès: {len(success)}")
+    logger.info(f"  ❌ Échecs: {len(failed)}")
+    logger.info("=" * 60)
     
     return {
         "success": success,
@@ -226,6 +311,11 @@ def list_vector_store_files(
     Returns:
         Liste des fichiers du vector store
     """
+    logger.info("=" * 60)
+    logger.info(f"📍 Endpoint appelé: GET /vector_stores/{vector_store_id}/files")
+    logger.info(f"📊 Paramètres: limit={limit}, order={order}, filter={filter_status}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
     url = f"{BASE_URL}/vector_stores/{vector_store_id}/files"
     
     headers = {
@@ -247,16 +337,28 @@ def list_vector_store_files(
         params["filter"] = filter_status
     
     try:
+        logger.info("🔄 Appel API OpenAI pour lister les fichiers...")
         response = requests.get(url, headers=headers, params=params)
         
+        logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+        
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            files_count = len(data.get("data", []))
+            logger.info(f"✅ {files_count} fichiers trouvés")
+            logger.info("=" * 60)
+            return data
         else:
+            logger.error(f"❌ Erreur OpenAI API: {response.status_code}")
+            logger.error(f"❌ Détails: {response.text}")
+            logger.error("=" * 60)
             raise HTTPException(
                 status_code=response.status_code,
                 detail=f"Erreur OpenAI API: {response.text}"
             )
     except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Erreur de connexion: {str(e)}")
+        logger.error("=" * 60)
         raise HTTPException(
             status_code=500,
             detail=f"Erreur de connexion: {str(e)}"
@@ -282,6 +384,12 @@ def delete_vector_store_file(
     Returns:
         Statut de la suppression
     """
+    logger.info("=" * 60)
+    logger.info(f"📍 Endpoint appelé: DELETE /vector_stores/{vector_store_id}/files/{file_id}")
+    logger.info(f"🗑️  Vector Store: {vector_store_id}")
+    logger.info(f"📄 Fichier: {file_id}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
     url = f"{BASE_URL}/vector_stores/{vector_store_id}/files/{file_id}"
     
     headers = {
@@ -291,16 +399,26 @@ def delete_vector_store_file(
     }
     
     try:
+        logger.info("🔄 Appel API OpenAI pour supprimer le fichier...")
         response = requests.delete(url, headers=headers)
         
+        logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+        
         if response.status_code in (200, 204):
+            logger.info(f"✅ Fichier supprimé avec succès: {file_id}")
+            logger.info("=" * 60)
             return response.json()
         else:
+            logger.error(f"❌ Erreur OpenAI API: {response.status_code}")
+            logger.error(f"❌ Détails: {response.text}")
+            logger.error("=" * 60)
             raise HTTPException(
                 status_code=response.status_code,
                 detail=f"Erreur OpenAI API: {response.text}"
             )
     except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Erreur de connexion: {str(e)}")
+        logger.error("=" * 60)
         raise HTTPException(
             status_code=500,
             detail=f"Erreur de connexion: {str(e)}"
@@ -309,5 +427,6 @@ def delete_vector_store_file(
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("🚀 Lancement du serveur Uvicorn...")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
