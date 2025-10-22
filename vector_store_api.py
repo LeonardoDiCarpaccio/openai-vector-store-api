@@ -19,9 +19,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="OpenAI Vector Store Management API",
-    description="API pour gérer les vector stores et leurs fichiers OpenAI",
-    version="2.0.0"
+    title="OpenAI Vector Store & Files Management API",
+    description="API pour gérer les vector stores, leurs fichiers, et tous les fichiers OpenAI",
+    version="3.0.0"
 )
 
 BASE_URL = "https://api.openai.com/v1"
@@ -89,18 +89,25 @@ def read_root():
     logger.info("✅ Retour des informations de l'API")
     
     return {
-        "message": "API OpenAI Vector Store Management",
-        "version": "2.0.0",
+        "message": "API OpenAI Vector Store & Files Management",
+        "version": "3.0.0",
         "endpoints": {
-            "GET /vector_stores": "Lister tous les vector stores de votre compte",
-            "DELETE /vector_stores": "Supprimer plusieurs vector stores (array d'IDs dans le body)",
-            "GET /vector_stores/{vector_store_id}/files": "Lister tous les fichiers d'un vector store",
-            "DELETE /vector_stores/{vector_store_id}/files/{file_id}": "Supprimer un fichier d'un vector store"
+            "vector_stores": {
+                "GET /vector_stores": "Lister tous les vector stores de votre compte",
+                "DELETE /vector_stores": "Supprimer plusieurs vector stores (array d'IDs dans le body)",
+                "GET /vector_stores/{vector_store_id}/files": "Lister tous les fichiers d'un vector store",
+                "DELETE /vector_stores/{vector_store_id}/files/{file_id}": "Supprimer un fichier d'un vector store"
+            },
+            "files": {
+                "GET /files": "Lister tous les fichiers de votre compte OpenAI",
+                "DELETE /files": "Supprimer plusieurs fichiers (array d'IDs dans le body)"
+            }
         },
         "usage": {
             "header_required": "x-openai-api-key: votre_clé_api_openai",
             "example": "Passez votre clé OpenAI dans le header 'x-openai-api-key'"
-        }
+        },
+        "note": "Supprimer un fichier le retire automatiquement de TOUS les vector stores"
     }
 
 
@@ -423,6 +430,188 @@ def delete_vector_store_file(
             status_code=500,
             detail=f"Erreur de connexion: {str(e)}"
         )
+
+
+@app.get("/files")
+def list_all_files(
+    x_openai_api_key: str = Header(..., description="Votre clé API OpenAI"),
+    after: Optional[str] = None,
+    limit: Optional[int] = 10000,
+    order: Optional[str] = "desc",
+    purpose: Optional[str] = None
+):
+    """
+    Liste tous les IDs des fichiers de votre compte OpenAI.
+    
+    Args:
+        x_openai_api_key: Votre clé API OpenAI (passée dans le header)
+        after: Curseur pour la pagination
+        limit: Nombre maximum de résultats (1-10000, défaut: 10000)
+        order: Ordre de tri (asc ou desc, défaut: desc)
+        purpose: Filtrer par purpose (assistants, fine-tune, batch, etc.)
+    
+    Returns:
+        Array simple d'IDs de fichiers: ["file-id1", "file-id2", ...]
+    """
+    logger.info("=" * 60)
+    logger.info("📋 Endpoint appelé: GET /files")
+    logger.info(f"📊 Paramètres: limit={limit}, order={order}, purpose={purpose}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
+    url = f"{BASE_URL}/files"
+    
+    headers = {
+        "Authorization": f"Bearer {x_openai_api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    all_ids = []
+    page_count = 0
+    
+    params = {
+        "limit": limit,
+        "order": order
+    }
+    
+    if after:
+        params["after"] = after
+    if purpose:
+        params["purpose"] = purpose
+    
+    try:
+        logger.info("🔄 Début de la récupération des fichiers...")
+        
+        while True:
+            page_count += 1
+            logger.info(f"📄 Page {page_count}: Appel API OpenAI...")
+            
+            response = requests.get(url, headers=headers, params=params)
+            
+            logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+            
+            if response.status_code != 200:
+                logger.error(f"❌ Erreur OpenAI API: {response.status_code}")
+                logger.error(f"❌ Détails: {response.text}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Erreur OpenAI API: {response.text}"
+                )
+            
+            data = response.json()
+            
+            items_count = len(data.get("data", []))
+            logger.info(f"📦 {items_count} fichiers trouvés sur cette page")
+            
+            for item in data.get("data", []):
+                file_id = item.get("id")
+                all_ids.append(file_id)
+                logger.debug(f"  ✓ {file_id}")
+            
+            has_more = data.get("has_more", False)
+            logger.info(f"🔍 Plus de résultats disponibles: {has_more}")
+            
+            if not has_more:
+                break
+            
+            params["after"] = data.get("last_id")
+            logger.info(f"➡️  Pagination: after={params['after']}")
+        
+        logger.info(f"✅ Total récupéré: {len(all_ids)} fichiers")
+        logger.info(f"📊 Nombre de pages parcourues: {page_count}")
+        logger.info("=" * 60)
+        
+        return all_ids
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Erreur de connexion: {str(e)}")
+        logger.error("=" * 60)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur de connexion: {str(e)}"
+        )
+
+
+class FileDeleteRequest(BaseModel):
+    """Modèle de requête pour supprimer plusieurs fichiers"""
+    file_ids: List[str]
+
+
+@app.delete("/files", response_model=BulkDeleteResponse)
+def delete_multiple_files(
+    request: FileDeleteRequest,
+    x_openai_api_key: str = Header(..., description="Votre clé API OpenAI")
+):
+    """
+    Supprime plusieurs fichiers en une seule requête.
+    Note: Supprimer un fichier le retire automatiquement de TOUS les vector stores.
+    
+    Args:
+        request: Objet contenant un array de file_ids à supprimer
+        x_openai_api_key: Votre clé API OpenAI (passée dans le header)
+    
+    Returns:
+        Résultat de la suppression avec les IDs réussis et échoués
+    
+    Example body:
+        {
+            "file_ids": ["file-abc123", "file-def456", "file-ghi789"]
+        }
+    """
+    logger.info("=" * 60)
+    logger.info("📋 Endpoint appelé: DELETE /files")
+    logger.info(f"🗑️  Nombre de fichiers à supprimer: {len(request.file_ids)}")
+    logger.info(f"📋 IDs: {request.file_ids}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
+    headers = {
+        "Authorization": f"Bearer {x_openai_api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    success = []
+    failed = []
+    
+    logger.info("🔄 Début de la suppression...")
+    
+    for index, file_id in enumerate(request.file_ids, 1):
+        logger.info(f"🗑️  [{index}/{len(request.file_ids)}] Suppression de: {file_id}")
+        
+        url = f"{BASE_URL}/files/{file_id}"
+        
+        try:
+            response = requests.delete(url, headers=headers)
+            
+            logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+            
+            if response.status_code in (200, 204):
+                success.append(file_id)
+                logger.info(f"✅ Supprimé avec succès: {file_id}")
+            else:
+                failed.append({
+                    "id": file_id,
+                    "error": response.text,
+                    "status_code": response.status_code
+                })
+                logger.error(f"❌ Échec de suppression: {file_id}")
+                logger.error(f"❌ Erreur: {response.text}")
+        except requests.exceptions.RequestException as e:
+            failed.append({
+                "id": file_id,
+                "error": str(e),
+                "status_code": 500
+            })
+            logger.error(f"❌ Erreur de connexion pour {file_id}: {str(e)}")
+    
+    logger.info("=" * 60)
+    logger.info(f"📊 Résumé de la suppression:")
+    logger.info(f"  ✅ Succès: {len(success)}")
+    logger.info(f"  ❌ Échecs: {len(failed)}")
+    logger.info("=" * 60)
+    
+    return {
+        "success": success,
+        "failed": failed
+    }
 
 
 if __name__ == "__main__":
