@@ -62,6 +62,21 @@ class BulkDeleteResponse(BaseModel):
     failed: List[dict]
 
 
+class VectorStoreDeleteWithFilesRequest(BaseModel):
+    """Modèle de requête pour supprimer plusieurs vector stores ET leurs fichiers"""
+    vector_store_ids: List[str]
+    delete_files: bool = True  # Par défaut, on supprime aussi les fichiers
+
+
+class BulkDeleteWithFilesResponse(BaseModel):
+    """Modèle de réponse pour la suppression en masse avec fichiers"""
+    vector_stores_deleted: List[str]
+    vector_stores_failed: List[dict]
+    files_deleted: List[str]
+    files_failed: List[dict]
+    total_files_found: int
+
+
 @app.on_event("startup")
 async def startup_event():
     """Événement au démarrage de l'application"""
@@ -95,6 +110,7 @@ def read_root():
             "vector_stores": {
                 "GET /vector_stores": "Lister tous les vector stores de votre compte",
                 "DELETE /vector_stores": "Supprimer plusieurs vector stores (array d'IDs dans le body)",
+                "DELETE /vector_stores/with-files": "⚡ Supprimer vector stores ET leurs fichiers (recommandé)",
                 "GET /vector_stores/{vector_store_id}/files": "Lister tous les fichiers d'un vector store",
                 "DELETE /vector_stores/{vector_store_id}/files/{file_id}": "Supprimer un fichier d'un vector store"
             },
@@ -290,6 +306,177 @@ def delete_multiple_vector_stores(
     return {
         "success": success,
         "failed": failed
+    }
+
+
+@app.delete("/vector_stores/with-files", response_model=BulkDeleteWithFilesResponse)
+def delete_vector_stores_with_files(
+    request: VectorStoreDeleteWithFilesRequest,
+    x_openai_api_key: str = Header(..., description="Votre clé API OpenAI")
+):
+    """
+    Supprime plusieurs vector stores ET leurs fichiers en une seule requête.
+    
+    Cette fonction:
+    1. Liste tous les fichiers de chaque vector store
+    2. Supprime les vector stores
+    3. Supprime tous les fichiers trouvés (si delete_files=true)
+    
+    Args:
+        request: Objet contenant un array de vector_store_ids et l'option delete_files
+        x_openai_api_key: Votre clé API OpenAI (passée dans le header)
+    
+    Returns:
+        Résultat détaillé de la suppression des vector stores et fichiers
+    
+    Example body:
+        {
+            "vector_store_ids": ["vs_abc123", "vs_def456"],
+            "delete_files": true
+        }
+    """
+    logger.info("=" * 60)
+    logger.info("📋 Endpoint appelé: DELETE /vector_stores/with-files")
+    logger.info(f"🗑️  Nombre de vector stores à supprimer: {len(request.vector_store_ids)}")
+    logger.info(f"📋 IDs: {request.vector_store_ids}")
+    logger.info(f"📁 Supprimer les fichiers: {request.delete_files}")
+    logger.info(f"🔑 Clé API fournie: {x_openai_api_key[:20]}..." if x_openai_api_key else "❌ Pas de clé API")
+    
+    headers = {
+        "Authorization": f"Bearer {x_openai_api_key}",
+        "Content-Type": "application/json",
+        "OpenAI-Beta": "assistants=v2"
+    }
+    
+    # Étape 1: Collecter tous les fichiers des vector stores
+    all_file_ids = set()  # Utiliser un set pour éviter les doublons
+    
+    if request.delete_files:
+        logger.info("🔄 Étape 1: Collecte des fichiers des vector stores...")
+        
+        for vs_id in request.vector_store_ids:
+            logger.info(f"📂 Récupération des fichiers de: {vs_id}")
+            
+            url = f"{BASE_URL}/vector_stores/{vs_id}/files"
+            params = {"limit": 100}
+            
+            try:
+                while True:
+                    response = requests.get(url, headers=headers, params=params)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        files = data.get("data", [])
+                        
+                        for file in files:
+                            file_id = file.get("id")
+                            all_file_ids.add(file_id)
+                            logger.debug(f"  ✓ Fichier trouvé: {file_id}")
+                        
+                        logger.info(f"  📦 {len(files)} fichiers trouvés dans {vs_id}")
+                        
+                        if not data.get("has_more", False):
+                            break
+                        
+                        params["after"] = data.get("last_id")
+                    else:
+                        logger.warning(f"⚠️  Impossible de lister les fichiers de {vs_id}: {response.status_code}")
+                        break
+                        
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"⚠️  Erreur lors de la récupération des fichiers de {vs_id}: {str(e)}")
+        
+        logger.info(f"✅ Total de fichiers uniques trouvés: {len(all_file_ids)}")
+    
+    # Étape 2: Supprimer les vector stores
+    logger.info("🔄 Étape 2: Suppression des vector stores...")
+    
+    vs_success = []
+    vs_failed = []
+    
+    for index, vector_store_id in enumerate(request.vector_store_ids, 1):
+        logger.info(f"🗑️  [{index}/{len(request.vector_store_ids)}] Suppression de: {vector_store_id}")
+        
+        url = f"{BASE_URL}/vector_stores/{vector_store_id}"
+        
+        try:
+            response = requests.delete(url, headers=headers)
+            
+            logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+            
+            if response.status_code in (200, 204):
+                vs_success.append(vector_store_id)
+                logger.info(f"✅ Supprimé avec succès: {vector_store_id}")
+            else:
+                vs_failed.append({
+                    "id": vector_store_id,
+                    "error": response.text,
+                    "status_code": response.status_code
+                })
+                logger.error(f"❌ Échec de suppression: {vector_store_id}")
+        except requests.exceptions.RequestException as e:
+            vs_failed.append({
+                "id": vector_store_id,
+                "error": str(e),
+                "status_code": 500
+            })
+            logger.error(f"❌ Erreur de connexion pour {vector_store_id}: {str(e)}")
+    
+    # Étape 3: Supprimer les fichiers
+    files_success = []
+    files_failed = []
+    
+    if request.delete_files and all_file_ids:
+        logger.info("🔄 Étape 3: Suppression des fichiers...")
+        
+        file_list = list(all_file_ids)
+        
+        for index, file_id in enumerate(file_list, 1):
+            logger.info(f"🗑️  [{index}/{len(file_list)}] Suppression de: {file_id}")
+            
+            url = f"{BASE_URL}/files/{file_id}"
+            
+            try:
+                response = requests.delete(url, headers=headers)
+                
+                logger.info(f"📡 Réponse OpenAI: Status {response.status_code}")
+                
+                if response.status_code in (200, 204):
+                    files_success.append(file_id)
+                    logger.info(f"✅ Fichier supprimé: {file_id}")
+                else:
+                    files_failed.append({
+                        "id": file_id,
+                        "error": response.text,
+                        "status_code": response.status_code
+                    })
+                    logger.error(f"❌ Échec suppression fichier: {file_id}")
+            except requests.exceptions.RequestException as e:
+                files_failed.append({
+                    "id": file_id,
+                    "error": str(e),
+                    "status_code": 500
+                })
+                logger.error(f"❌ Erreur de connexion pour {file_id}: {str(e)}")
+    
+    # Résumé
+    logger.info("=" * 60)
+    logger.info(f"📊 Résumé de la suppression:")
+    logger.info(f"  🗄️ Vector Stores:")
+    logger.info(f"    ✅ Succès: {len(vs_success)}")
+    logger.info(f"    ❌ Échecs: {len(vs_failed)}")
+    logger.info(f"  📁 Fichiers:")
+    logger.info(f"    🔍 Trouvés: {len(all_file_ids)}")
+    logger.info(f"    ✅ Supprimés: {len(files_success)}")
+    logger.info(f"    ❌ Échecs: {len(files_failed)}")
+    logger.info("=" * 60)
+    
+    return {
+        "vector_stores_deleted": vs_success,
+        "vector_stores_failed": vs_failed,
+        "files_deleted": files_success,
+        "files_failed": files_failed,
+        "total_files_found": len(all_file_ids)
     }
 
 
